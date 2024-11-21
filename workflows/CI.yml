@@ -1,0 +1,116 @@
+name: "Reusable Tests Workflow"
+
+on:
+  workflow_call:
+    inputs:
+      julia-version:
+        description: "Julia version"
+        default: "1"
+        required: false
+        type: string
+      julia-arch:
+        description: "Architecture of Julia to be used"
+        required: false
+        type: string
+      project:
+        description: "The value is passed to Julia's `--project` flag"
+        default: '@.'
+        required: false
+        type: string
+      group:
+        description: "The 'GROUP' of tests that need to be run. This will requires an ENV `GROUP` to be (conditionally) defined within your package tests as well to selectively run groups of tests"
+        default: ""
+        required: false
+        type: string
+      self-hosted:
+        description: "Run the job needs on a self hosted machine"
+        default: false
+        required: false
+        type: boolean
+      os:
+        description: "The machine configuration on which the job needs to be run"
+        default: "ubuntu-latest"
+        required: false
+        type: string
+      cache:
+        description: "Use the julia-actions/cache action for caching"
+        default: true
+        required: false
+        type: boolean
+      buildpkg:
+        description: "Use the julia-actions/buildpkg action to build the package first"
+        default: true
+        required: false
+        type: boolean
+      coverage:
+        description: "Collect and generate code coverage-related information"
+        default: true
+        required: false
+        type: boolean
+      coverage-directories:
+        description: "Comma-separated list of directories where the julia-processcoverage action will look for coverage information (e.g. `src,examples`)"
+        default: "src,ext"
+        required: false
+        type: string
+      julia-runtest-depwarn:
+        description: "Value of the --depwarn flag while running Julia"
+        default: "yes"
+        required: false
+        type: string
+      continue-on-error:
+        description: "Prevent the workflow run from failing if/when the job fails"
+        required: false
+        type: boolean
+      timeout-minutes:
+        description: "The maximum time in minutes that the job can run"
+        default: 60
+        required: false
+        type: number
+    secrets:
+      CODECOV_TOKEN:
+        required: true
+
+jobs:
+  tests:
+    name: "Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} : ${{ inputs.group != '' && format(' - {0}', inputs.group) || '' }}"
+    continue-on-error: ${{ inputs.continue-on-error || inputs.julia-version == 'nightly' }}
+    runs-on: "${{ inputs.self-hosted && 'self-hosted' || inputs.os }}"
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Setup Julia ${{ inputs.julia-version }}"
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: "${{ inputs.julia-version }}"
+          arch: "${{ inputs.julia-arch || runner.arch }}"
+
+      - uses: julia-actions/cache@v1
+        if: "${{ inputs.cache }}"
+        with:
+          token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - uses: julia-actions/julia-buildpkg@v1
+        if: "${{ inputs.buildpkg }}"
+
+      - name: "Run tests ${{ inputs.self-hosted && '' || format('on {0}', inputs.os) }} with Julia v${{ inputs.julia-version }}"
+        uses: julia-actions/julia-runtest@v1
+        with:
+          project: "${{ inputs.project }}"
+          depwarn: "${{ inputs.julia-runtest-depwarn }}"
+          coverage: "${{ inputs.coverage }}"
+        env:
+          GROUP: "${{ inputs.group }}"
+
+      - uses: julia-actions/julia-processcoverage@v1
+        if: "${{ inputs.coverage }}"
+        with:
+          directories: "${{ inputs.coverage-directories }}"
+
+      - name: "Report Coverage with Codecov"
+        uses: codecov/codecov-action@v5
+        if: "${{ inputs.coverage }}"
+        with:
+          files: lcov.info
+          token: "${{ secrets.CODECOV_TOKEN }}"
+          fail_ci_if_error: false
