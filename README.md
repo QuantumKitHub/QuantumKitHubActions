@@ -82,3 +82,41 @@ jobs:
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 ```
+
+## Documentation
+
+The documentation workflow is designed to build and deploy the documentation for Julia packages.
+The workflow works best with a `makedocs.jl` script that looks like this:
+
+```julia
+using MyPackage
+using Documenter
+
+makedocs(; kwargs...)
+deploydocs(; kwargs...)
+```
+
+An example workflow that uses this script is:
+
+```yaml
+name: "Documentation"
+
+on:
+  push:
+    branches:
+      - master
+    tags: '*'
+  pull_request:
+  schedule:
+    - cron: '1 4 * * 4'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch || github.ref != 'refs/tags/v*' }}
+
+jobs:
+  build-and-deploy-docs:
+    name: "Documentation"
+    uses: "ITensor/JuliaActions/workflows/documentation.yml@main"
+    secrets: "inherit"
+```
