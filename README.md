@@ -153,3 +153,24 @@ jobs:
     name: "Format Suggestions"
     uses: "ITensor/JuliaActions/workflows/FormatSuggest.yml@main"
 ```
+
+## LiterateCheck
+
+The LiterateCheck workflow is designed to keep the README of Julia packages up to date.
+The workflow would look like:
+
+```yaml
+name: "Literate Check"
+
+on:
+  push:
+    branches:
+      - 'main'
+    tags: '*'
+  pull_request:
+
+jobs:
+  format-check:
+    name: "Literate Check"
+    uses: "ITensor/JuliaActions/workflows/LiterateCheck.yml@main"
+```
