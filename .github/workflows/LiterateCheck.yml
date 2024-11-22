@@ -1,0 +1,57 @@
+name: "Reusable Readme Generation Workflow"
+
+on:
+  workflow_call:
+    inputs:
+      julia-version:
+        description: "Julia version"
+        default: "1"
+        required: false
+        type: string
+  outputs:
+    up_to_date:
+      description: "If the README.md is up-to-date or not."
+      value: "${{ jobs.literate.outputs.up_to_date }}"
+    literate-diff-patch:
+      description: "A patch consisting of changes which can be applied to comply with literate check. Available only if `outputs.up_to_date` is `false`"
+      value: "${{ jobs.literate.outputs.literate_changes }}"
+
+concurrency:
+  group: "${{ github.run_id || github.ref  }}:${{ github.workflow }}"
+  cancel-in-progress: true
+
+jobs:
+  literate:
+    name: "Literate Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "${{ inputs.julia-version }}"
+      - name: Install Literate and generate docs
+        shell: julia --color=yes {0}
+        run: |
+          using Pkg
+          Pkg.add(PackageSpec(name="Literate"))
+          using Literate
+          Literate.markdown("examples/README.jl", "docs/src"; flavor=Literate.DocumenterFlavor(), name="index")
+      - name: Check if docs need to be updated
+        id: check-literate
+        run: |
+          MODIFIED_FILES="$(git diff --name-only)"
+
+          if [ -z "$MODIFIED_FILES" ]; then
+            echo "up_to_date=true" >> $GITHUB_OUTPUT
+          else
+            echo "The documentation is outdated, rerun Literate to regenerate them."
+            echo "$MODIFIED_FILES"
+
+            {
+              echo "literate_changes<<EOF"
+              echo "$(git diff)"
+              echo EOF
+            } >> $GITHUB_OUTPUT
+
+            exit 1
+          fi
