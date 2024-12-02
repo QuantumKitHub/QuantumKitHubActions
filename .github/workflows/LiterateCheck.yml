@@ -8,6 +8,10 @@ on:
         default: "1"
         required: false
         type: string
+      localregistry:
+        description: 'Add local registries hosted on GitHub. Specified by providing the url (https/ssh) to the repositories as a newline (\n) seperated list.
+                      User is responsible for setting up the necessary SSH-Keys to access the repositories if necessary.'
+        default: ''
   outputs:
     up_to_date:
       description: "If the README.md is up-to-date or not."
@@ -29,13 +33,26 @@ jobs:
       - uses: julia-actions/setup-julia@v2
         with:
           version: "${{ inputs.julia-version }}"
-      - name: Install Literate and generate docs
-        shell: julia --color=yes {0}
+      - name: Setup project
+        shell: julia --project=docs --color=yes {0}
         run: |
-          using Pkg
-          Pkg.add(PackageSpec(name="Literate"))
-          using Literate
-          Literate.markdown("examples/README.jl", "docs/src"; flavor=Literate.DocumenterFlavor(), name="index")
+          import Pkg
+          Pkg.develop(PackageSpec(path=pwd()))
+          if VERSION >= v"1.8-"
+            Pkg.Registry.add()
+          else
+            Pkg.Registry.add("General")
+          end
+          if !isempty("$${{ inputs.localregistry }}")
+            local_repos = split("${{ inputs.localregistry }}", "\n") .|> string
+            for repo_url in local_repos
+              isempty(repo_url) && continue
+              Pkg.Registry.add(Pkg.RegistrySpec(; url=repo_url))
+            end
+          end
+          retry(Pkg.build)(verbose=true)
+      - name: "Build README"
+        run: julia --project=docs/ docs/make_readme.jl
       - name: Check if docs need to be updated
         id: check-literate
         run: |
