@@ -1,10 +1,10 @@
-# JuliaActions
+# ITensorActions
 
 Shared workflows for the ITensors Julia packages
 
-## CI
+## Tests
 
-The CI workflow is designed to run the tests suite for Julia packages.
+The Tests workflow is designed to run the tests suite for Julia packages.
 The workflow works best with a `runtests.jl` script that looks like this:
 
 ```julia
@@ -37,7 +37,7 @@ end
 An example workflow that uses this script is:
 
 ```yaml
-name: CI
+name: Tests
 on:
   push:
     branches:
@@ -74,7 +74,7 @@ jobs:
           - ubuntu-latest
           - macOS-latest
           - windows-latest
-    uses: "ITensor/JuliaActions/workflows/tests.yml@main"
+    uses: "ITensor/ITensorActions/workflows/Tests.yml@main"
     with:
       group: "${{ matrix.group }}"
       julia-version: "${{ matrix.version }}"
@@ -86,7 +86,7 @@ jobs:
 ## Documentation
 
 The documentation workflow is designed to build and deploy the documentation for Julia packages.
-The workflow works best with a `makedocs.jl` script that looks like this:
+The workflow works best with a `docs/make.jl` script that looks like this:
 
 ```julia
 using MyPackage
@@ -117,7 +117,7 @@ concurrency:
 jobs:
   build-and-deploy-docs:
     name: "Documentation"
-    uses: "ITensor/JuliaActions/workflows/documentation.yml@main"
+    uses: "ITensor/ITensorActions/workflows/Documentation.yml@main"
     secrets: "inherit"
 ```
 
@@ -139,7 +139,7 @@ on:
 jobs:
   format-check:
     name: "Format Check"
-    uses: "ITensor/JuliaActions/workflows/FormatCheck.yml@main"
+    uses: "ITensor/ITensorActions/workflows/FormatCheck.yml@main"
 ```
 
 ```yaml
@@ -151,7 +151,7 @@ on:
 jobs:
   format-suggestions:
     name: "Format Suggestions"
-    uses: "ITensor/JuliaActions/workflows/FormatSuggest.yml@main"
+    uses: "ITensor/ITensorActions/workflows/FormatSuggest.yml@main"
 ```
 
 ## LiterateCheck
@@ -172,5 +172,5 @@ on:
 jobs:
   format-check:
     name: "Literate Check"
-    uses: "ITensor/JuliaActions/workflows/LiterateCheck.yml@main"
+    uses: "ITensor/ITensorActions/workflows/LiterateCheck.yml@main"
 ```
