@@ -38,7 +38,7 @@ jobs:
         shell: julia --project=docs --color=yes {0}
         run: |
           import Pkg
-          Pkg.develop(PackageSpec(path=pwd()))
+          Pkg.develop(Pkg.PackageSpec(path=pwd()))
           if VERSION >= v"1.8-"
             Pkg.Registry.add()
           else
