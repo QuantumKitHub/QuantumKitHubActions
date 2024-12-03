@@ -9,16 +9,17 @@ on:
         required: false
         type: string
       localregistry:
-        description: 'Add local registries hosted on GitHub. Specified by providing the url (https/ssh) to the repositories as a newline (\n) seperated list.
-                      User is responsible for setting up the necessary SSH-Keys to access the repositories if necessary.'
-        default: ''
-  outputs:
-    up_to_date:
-      description: "If the README.md is up-to-date or not."
-      value: "${{ jobs.literate.outputs.up_to_date }}"
-    literate-diff-patch:
-      description: "A patch consisting of changes which can be applied to comply with literate check. Available only if `outputs.up_to_date` is `false`"
-      value: "${{ jobs.literate.outputs.literate_changes }}"
+        type: string
+        required: false
+        description: "Add local registries hosted on GitHub. Specified by providing the url (https/ssh) to the repositories as a newline (\n) seperated list. User is responsible for setting up the necessary SSH-Keys to access the repositories if necessary."
+        default: ""
+    outputs:
+      up_to_date:
+        description: "If the README.md is up-to-date or not."
+        value: "${{ jobs.literate.outputs.up_to_date }}"
+      literate-diff-patch:
+        description: "A patch consisting of changes which can be applied to comply with literate check. Available only if `outputs.up_to_date` is `false`"
+        value: "${{ jobs.literate.outputs.literate_changes }}"
 
 concurrency:
   group: "${{ github.run_id || github.ref  }}:${{ github.workflow }}"
