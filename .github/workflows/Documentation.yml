@@ -22,8 +22,9 @@ on:
         required: false
         type: string
       localregistry:
-        description: 'Add local registries hosted on GitHub. Specified by providing the url (https/ssh) to the repositories as a newline (\n) seperated list.
-                      User is responsible for setting up the necessary SSH-Keys to access the repositories if necessary.'
+        type: string
+        required: false
+        description: 'Add local registries hosted on GitHub. Specified by providing the url (https/ssh) to the repositories as a newline (\n) seperated list. User is responsible for setting up the necessary SSH-Keys to access the repositories if necessary.'
         default: ''
       self-hosted:
         description: "Run the job needs on a self hosted machine"
@@ -76,7 +77,7 @@ jobs:
         shell: julia --project=docs --color=yes {0}
         run: |
           import Pkg
-          Pkg.develop(PackageSpec(path=pwd()))
+          Pkg.develop(Pkg.PackageSpec(path=pwd()))
           if VERSION >= v"1.8-"
             Pkg.Registry.add()
           else
