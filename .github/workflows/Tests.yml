@@ -42,6 +42,11 @@ on:
         default: true
         required: false
         type: boolean
+      localregistry:
+        type: string
+        required: false
+        description: "Add local registries hosted on GitHub. Specified by providing the url (https/ssh) to the repositories as a newline (\n) seperated list. User is responsible for setting up the necessary SSH-Keys to access the repositories if necessary."
+        default: ""
       coverage:
         description: "Collect and generate code coverage-related information"
         default: true
@@ -92,6 +97,8 @@ jobs:
 
       - uses: julia-actions/julia-buildpkg@v1
         if: "${{ inputs.buildpkg }}"
+        with:
+          localregistry: "${{ inputs.localregistry }}"
 
       - name: "Run tests ${{ inputs.self-hosted && '' || format('on {0}', inputs.os) }} with Julia v${{ inputs.julia-version }}"
         uses: julia-actions/julia-runtest@v1
