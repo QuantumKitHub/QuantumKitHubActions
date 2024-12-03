@@ -83,7 +83,7 @@ jobs:
           else
             Pkg.Registry.add("General")
           end
-          if !isempty("$${{ inputs.localregistry }}")
+          if !isempty("${{ inputs.localregistry }}")
             local_repos = split("${{ inputs.localregistry }}", "\n") .|> string
             for repo_url in local_repos
               isempty(repo_url) && continue
