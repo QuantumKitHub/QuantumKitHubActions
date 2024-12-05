@@ -38,7 +38,6 @@ jobs:
         shell: julia --project=docs --color=yes {0}
         run: |
           import Pkg
-          Pkg.develop(Pkg.PackageSpec(path=pwd()))
           if VERSION >= v"1.8-"
             Pkg.Registry.add()
           else
@@ -51,6 +50,7 @@ jobs:
               Pkg.Registry.add(Pkg.RegistrySpec(; url=repo_url))
             end
           end
+          Pkg.develop(Pkg.PackageSpec(path=pwd()))
           retry(Pkg.build)(verbose=true)
       - name: "Build README"
         run: julia --project=docs/ docs/make_readme.jl
