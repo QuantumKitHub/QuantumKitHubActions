@@ -77,7 +77,7 @@ on:
 
 jobs:
   tests:
-    name: "Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} : ${{ inputs.group != '' && format(' - {0}', inputs.group) || '' }}"
+    name: "Julia ${{ inputs.julia-version }} - ${{ inputs.self-hosted && 'self-hosted' || inputs.os }} - ${{ inputs.julia-arch || runner.arch }} : ${{ inputs.group != '' && format(' - {0}', inputs.group) || '' }}"
     continue-on-error: ${{ inputs.continue-on-error || inputs.julia-version == 'nightly' }}
     runs-on: "${{ inputs.self-hosted && 'self-hosted' || inputs.os }}"
     timeout-minutes: ${{ inputs.timeout-minutes }}
