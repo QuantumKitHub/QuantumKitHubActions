@@ -1,6 +1,99 @@
-# ITensorActions
+# QuantumKitHubActions
 
-Shared workflows for the ITensors Julia packages
+Shared workflows for the QuantumKitHub Julia packages
+
+## Test Groups
+
+The TestGroups workflow auto-discovers test groups from subdirectories of `test/` and runs them in parallel across a matrix of Julia versions and operating systems. Each subdirectory becomes a separate parallel job; groups are passed to the test suite via `test_args` and dispatched by [ParallelTestRunner.jl](https://github.com/QuantumKitHub/ParallelTestRunner.jl).
+
+### Test directory structure
+
+Organize your `test/` directory with one subfolder per test group. Place shared setup code in a `test/setup/` directory (excluded by default):
+
+```
+test/
+├── setup/          # shared utilities, excluded from test groups
+├── core/
+│   └── runtests.jl
+├── extensions/
+│   └── runtests.jl
+└── runtests.jl     # ParallelTestRunner.jl entry point
+```
+
+A minimal `test/runtests.jl` using ParallelTestRunner.jl:
+
+```julia
+using ParallelTestRunner
+ParallelTestRunner.runtests()
+```
+
+### Example workflow
+
+```yaml
+name: "Tests"
+
+on:
+  push:
+    branches:
+      - main
+    tags: '*'
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+jobs:
+  tests:
+    uses: "QuantumKitHub/QuantumKitHubActions/.github/workflows/TestGroups.yml@main"
+    with:
+      fast: ${{ github.event.pull_request.draft == true }}
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+```
+
+### Branch protection
+
+Add `ci-success` as a required status check in your repository's branch protection rules. This single stable check name reflects the combined result of all parallel test jobs regardless of how many groups exist.
+
+### Inputs
+
+| Input | Type | Default | Description |
+|---|---|---|---|
+| `exclude` | string | `'["setup", "gpu"]'` | JSON array of `test/` subdirectory names to exclude from discovery |
+| `julia-version` | string | `'["min", "1"]'` | JSON array of Julia versions to test |
+| `os` | string | `'["ubuntu-latest", "macos-latest", "windows-latest"]'` | JSON array of runner OSes |
+| `fast` | boolean | `false` | Collapse matrix to `ubuntu-latest` + julia `1`, append `--fast` to test args |
+| `nthreads` | number | `2` | Julia thread count per job |
+| `timeout-minutes` | number | `60` | Per-job timeout |
+| `localregistry` | string | `""` | Newline-separated local registry URLs |
+| `cache` | boolean | `true` | Enable `julia-actions/cache` |
+| `buildpkg` | boolean | `true` | Enable `julia-actions/julia-buildpkg` |
+| `coverage` | boolean | `true` | Collect and upload coverage (only on `ubuntu-latest` + julia `1`) |
+| `coverage-directories` | string | `"src,ext"` | Directories for `julia-processcoverage` |
+
+**Secrets:** `CODECOV_TOKEN` (optional, only needed when `coverage: true`)
+
+### Fast path
+
+When `fast: true`, the matrix collapses to a single OS and Julia version and `--fast` is appended to each group's test args. Wire it to draft PR detection for quick feedback during development:
+
+```yaml
+with:
+  fast: ${{ github.event.pull_request.draft == true }}
+```
+
+ParallelTestRunner.jl passes `--fast` through to individual test files, which can use it to skip slow or expensive tests.
+
+### Excluding folders
+
+Override `exclude` to control which subdirectories are skipped:
+
+```yaml
+with:
+  exclude: '["setup", "gpu", "cuda"]'
+```
 
 ## Tests
 

@@ -1,0 +1,153 @@
+name: "Reusable Test Groups Workflow"
+
+on:
+  workflow_call:
+    inputs:
+      exclude:
+        description: "JSON array of test/ subdirectories to exclude from auto-discovery"
+        default: '["setup", "gpu"]'
+        required: false
+        type: string
+      julia-version:
+        description: "JSON array of Julia versions to test (e.g. '[\"min\", \"1\"]')"
+        default: '["min", "1"]'
+        required: false
+        type: string
+      os:
+        description: "JSON array of runner operating systems"
+        default: '["ubuntu-latest", "macos-latest", "windows-latest"]'
+        required: false
+        type: string
+      fast:
+        description: "Collapse matrix to ubuntu-latest + julia 1, and append --fast to test args"
+        default: false
+        required: false
+        type: boolean
+      nthreads:
+        description: "Number of Julia threads"
+        default: 2
+        required: false
+        type: number
+      timeout-minutes:
+        description: "Maximum time per job in minutes"
+        default: 60
+        required: false
+        type: number
+      localregistry:
+        description: "Newline-separated list of local registry URLs to add before building"
+        default: ""
+        required: false
+        type: string
+      cache:
+        description: "Enable julia-actions/cache"
+        default: true
+        required: false
+        type: boolean
+      buildpkg:
+        description: "Enable julia-actions/julia-buildpkg"
+        default: true
+        required: false
+        type: boolean
+      coverage:
+        description: "Collect and upload coverage (restricted to ubuntu-latest + julia 1)"
+        default: true
+        required: false
+        type: boolean
+      coverage-directories:
+        description: "Comma-separated directories for julia-processcoverage"
+        default: "src,ext"
+        required: false
+        type: string
+    secrets:
+      CODECOV_TOKEN:
+        required: false
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      groups: ${{ steps.discover.outputs.groups }}
+      versions: ${{ steps.discover.outputs.versions }}
+      systems: ${{ steps.discover.outputs.systems }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Discover test groups
+        id: discover
+        shell: bash
+        run: |
+          GROUPS=$(find test -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+            | sort \
+            | jq -R -s -c --argjson exc '${{ inputs.exclude }}' \
+                'split("\n")[:-1] | map(select(. as $g | $exc | index($g) | not))')
+          echo "groups=$GROUPS" >> "$GITHUB_OUTPUT"
+
+          if [[ "${{ inputs.fast }}" == "true" ]]; then
+            echo 'versions=["1"]' >> "$GITHUB_OUTPUT"
+            echo 'systems=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'versions=${{ inputs.julia-version }}' >> "$GITHUB_OUTPUT"
+            echo 'systems=${{ inputs.os }}' >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    needs: setup
+    name: "Test (${{ matrix.version }}, ${{ matrix.os }}, ${{ matrix.group }})"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.setup.outputs.groups) }}
+        version: ${{ fromJSON(needs.setup.outputs.versions) }}
+        os: ${{ fromJSON(needs.setup.outputs.systems) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Setup Julia ${{ matrix.version }}"
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: "${{ matrix.version }}"
+
+      - uses: julia-actions/cache@v2
+        if: inputs.cache
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: julia-actions/julia-buildpkg@v1
+        if: inputs.buildpkg
+        with:
+          localregistry: "${{ inputs.localregistry }}"
+
+      - name: "Run tests"
+        uses: julia-actions/julia-runtest@v1
+        with:
+          test_args: "${{ matrix.group }}${{ inputs.fast && ' --fast' || '' }}"
+          coverage: "${{ inputs.coverage && matrix.os == 'ubuntu-latest' && matrix.version == '1' }}"
+        env:
+          JULIA_NUM_THREADS: "${{ inputs.nthreads }}"
+
+      - uses: julia-actions/julia-processcoverage@v1
+        if: inputs.coverage && matrix.os == 'ubuntu-latest' && matrix.version == '1'
+        with:
+          directories: "${{ inputs.coverage-directories }}"
+
+      - name: "Report coverage with Codecov"
+        uses: codecov/codecov-action@v5
+        if: inputs.coverage && matrix.os == 'ubuntu-latest' && matrix.version == '1'
+        with:
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  ci-success:
+    name: ci-success
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all tests passed
+        run: |
+          if [[ "${{ contains(needs.test.result, 'failure') || contains(needs.test.result, 'cancelled') }}" == "true" ]]; then
+            exit 1
+          fi
