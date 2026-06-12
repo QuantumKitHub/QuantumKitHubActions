@@ -117,6 +117,8 @@ jobs:
         if: inputs.cache
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          include-matrix: false
+          cache-name: "julia-cache;workflow=${{ github.workflow }};version=${{ matrix.version }};os=${{ matrix.os }}"
 
       - name: Build package
         uses: julia-actions/julia-buildpkg@v1
