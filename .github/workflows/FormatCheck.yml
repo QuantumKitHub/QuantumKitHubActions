@@ -13,6 +13,11 @@ concurrency:
   group: "${{ github.run_id || github.ref  }}:${{ github.workflow }}"
   cancel-in-progress: true
 
+# This workflow is designed to be called from a `pull_request` trigger (NOT
+# `pull_request_target`). It runs with a read-only token and no secrets, so it
+# is safe to check out and inspect code from forks. It never posts comments;
+# instead the required formatting changes are reported in the job summary and
+# the job fails, which surfaces as a red check on the PR.
 jobs:
   format-check:
     name: "Runic"
@@ -20,15 +25,13 @@ jobs:
 
     permissions:
       contents: read
-      actions: write
-      pull-requests: write
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
         with:
-          ref: ${{github.event.pull_request.head.ref}}
-          repository: ${{github.event.pull_request.head.repo.full_name}}
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
           fetch-depth: 0
 
       - name: Add upstream remote
@@ -64,51 +67,36 @@ jobs:
           echo "$DIFF" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-          # if Runic failed, bail out
+          # if Runic itself errored (exit code 2), bail out
           [ $EXIT_CODE -eq 2 ] && exit 1 || exit 0
 
-      - name: Find comment
-        uses: peter-evans/find-comment@v3
-        id: find-comment
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-author: 'github-actions[bot]'
-          body-includes: '<!-- runic-format-summary -->'
-
-      - name: Comment formatting suggestions
+      - name: Report formatting suggestions
         if: steps.runic.outputs.exit_code == 1
-        uses: peter-evans/create-or-update-comment@v4
-        with:
-          comment-id: ${{ steps.find-comment.outputs.comment-id }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            <!-- runic-format-summary -->
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## :art: Formatting changes required
 
-            Your PR requires formatting changes to meet the project's style guidelines.
-            Please consider running [Runic](https://github.com/fredrikekre/Runic.jl) (`git runic ${{ github.base_ref }}`) to apply these changes.
+          This PR does not meet the project's style guidelines.
+          Run [Runic](https://github.com/fredrikekre/Runic.jl) locally to apply the changes:
 
-            <details>
-            <summary>Click here to view the suggested changes.</summary>
+          ```
+          git runic ${{ github.base_ref }}
+          ```
 
-            ~~~diff
-            ${{ steps.runic.outputs.diff }}
-            ~~~
+          <details>
+          <summary>Suggested changes</summary>
 
-            </details>
-          edit-mode: replace
+          ```diff
+          ${{ steps.runic.outputs.diff }}
+          ```
 
-      - name: Update stale comment
-        if: steps.runic.outputs.exit_code == 0 && steps.find-comment.outputs.comment-id
-        uses: peter-evans/create-or-update-comment@v4
-        with:
-          comment-id: ${{ steps.find-comment.outputs.comment-id }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            <!-- runic-format-summary -->
+          </details>
+          EOF
 
-            Your PR no longer requires formatting changes. Thank you for your contribution!
-          edit-mode: replace
+      - name: Report success
+        if: steps.runic.outputs.exit_code == 0
+        run: |
+          echo "### :white_check_mark: Formatting OK" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Propagate exit code
-        run: |
-          exit ${{ steps.runic.outputs.exit_code }}
+        run: exit ${{ steps.runic.outputs.exit_code }}
