@@ -48,6 +48,13 @@ on:
         default: true
         required: false
         type: boolean
+      force-latest-compatible-version:
+        description: >-
+          Value passed to julia-actions/julia-runtest on the newest Julia ("1").
+          Every other version is always run with "false". Options: true | false | auto
+        default: "auto"
+        required: false
+        type: string
       coverage:
         description: "Collect and upload coverage (restricted to ubuntu-latest + julia 1)"
         default: true
@@ -131,6 +138,11 @@ jobs:
         with:
           test_args: "${{ matrix.group }}${{ inputs.fast && ' --fast' || '' }}"
           coverage: "${{ inputs.coverage && matrix.os == 'ubuntu-latest' && matrix.version == '1' }}"
+          # `julia-runtest` resolves `auto` to `true` on `dependabot/julia*` and `compathelper/*`
+          # branches, which pins every [compat] entry to its newest range. That is unsatisfiable on
+          # older Julia versions as soon as a dependency's newest range drops support for them, so
+          # only apply it on the newest Julia.
+          force_latest_compatible_version: "${{ matrix.version == '1' && inputs.force-latest-compatible-version || 'false' }}"
         env:
           JULIA_NUM_THREADS: "${{ inputs.nthreads }}"
 
