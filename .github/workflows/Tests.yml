@@ -62,6 +62,13 @@ on:
         default: "src,ext"
         required: false
         type: string
+      force-latest-compatible-version:
+        description: >-
+          Value passed to julia-actions/julia-runtest on the newest Julia ("1").
+          Every other version is always run with "false". Options: true | false | auto
+        default: "auto"
+        required: false
+        type: string
       julia-runtest-depwarn:
         description: "Value of the --depwarn flag while running Julia"
         default: "yes"
@@ -111,6 +118,11 @@ jobs:
           project: "${{ inputs.project }}"
           depwarn: "${{ inputs.julia-runtest-depwarn }}"
           coverage: "${{ inputs.coverage }}"
+          # `julia-runtest` resolves `auto` to `true` on `dependabot/julia*` and `compathelper/*`
+          # branches, which pins every [compat] entry to its newest range. That is unsatisfiable on
+          # older Julia versions as soon as a dependency's newest range drops support for them, so
+          # only apply it on the newest Julia.
+          force_latest_compatible_version: "${{ inputs.julia-version == '1' && inputs.force-latest-compatible-version || 'false' }}"
         env:
           GROUP: "${{ inputs.group }}"
           JULIA_NUM_THREADS: "${{ inputs.nthreads }}"
