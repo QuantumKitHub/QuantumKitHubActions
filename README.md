@@ -216,8 +216,7 @@ jobs:
 
 ## Formatting
 
-The formatting workflow is designed to run the `JuliaFormatter` on Julia packages.
-There are two workflows available, one for simply verifying the formatting and one for additionally applying suggested changes.
+The formatting workflow is designed to run [Runic](https://github.com/fredrikekre/Runic.jl) on Julia packages and verify the formatting.
 
 ```yaml
 name: "Format Check"
@@ -232,19 +231,7 @@ on:
 jobs:
   format-check:
     name: "Format Check"
-    uses: "ITensor/ITensorActions/workflows/FormatCheck.yml@main"
-```
-
-```yaml
-name: "Format Suggestions"
-
-on:
-  pull_request:
-
-jobs:
-  format-suggestions:
-    name: "Format Suggestions"
-    uses: "ITensor/ITensorActions/workflows/FormatSuggest.yml@main"
+    uses: "QuantumKitHub/QuantumKitHubActions/.github/workflows/FormatCheck.yml@main"
 ```
 
 ## LiterateCheck
