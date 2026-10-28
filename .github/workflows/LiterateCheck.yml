@@ -28,7 +28,10 @@ concurrency:
 jobs:
   literate:
     name: "Literate Check"
+    # Runs triggered by closing a PR only exist to cancel in-progress runs through the caller's concurrency group
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2

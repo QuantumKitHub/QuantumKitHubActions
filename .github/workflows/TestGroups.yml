@@ -9,17 +9,27 @@ on:
         required: false
         type: string
       julia-version:
-        description: "JSON array of Julia versions to test (e.g. '[\"min\", \"1\"]')"
+        description: "JSON array of Julia versions to test on ubuntu-latest (e.g. '[\"min\", \"1\"]')"
         default: '["min", "1"]'
         required: false
         type: string
-      os:
-        description: "JSON array of runner operating systems"
-        default: '["ubuntu-latest", "macos-latest", "windows-latest"]'
+      extra-os:
+        description: "JSON array of additional runner operating systems, tested with julia 1 only, on pushes to the default branch and manual runs"
+        default: '["macos-latest", "windows-latest"]'
         required: false
         type: string
+      extra-os-on-prs:
+        description: "Also test on `extra-os` for pull requests"
+        default: false
+        required: false
+        type: boolean
       fast:
         description: "Collapse matrix to ubuntu-latest + julia 1, and append --fast to test args"
+        default: false
+        required: false
+        type: boolean
+      staged:
+        description: "Only run the `extra-os` jobs once all ubuntu jobs have passed"
         default: false
         required: false
         type: boolean
@@ -72,11 +82,12 @@ on:
 jobs:
   setup:
     name: "Discover test groups"
+    # Runs triggered by closing a PR only exist to cancel in-progress runs through the caller's concurrency group
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     outputs:
-      groups: ${{ steps.discover.outputs.groups }}
-      versions: ${{ steps.discover.outputs.versions }}
-      systems: ${{ steps.discover.outputs.systems }}
+      configs: ${{ steps.discover.outputs.configs }}
+      staged-configs: ${{ steps.discover.outputs.staged-configs }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -84,20 +95,34 @@ jobs:
       - name: Discover test groups
         id: discover
         shell: bash
+        env:
+          RUN_EXTRA_OS: ${{ inputs.extra-os-on-prs || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
         run: |
           TESTGROUPS=$(find test -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
             | sort \
             | jq -R -s -c --argjson exc '${{ inputs.exclude }}' \
                 'split("\n")[:-1] | map(select(. as $g | $exc | index($g) | not))')
-          echo "groups=$TESTGROUPS" >> "$GITHUB_OUTPUT"
 
           if [[ "${{ inputs.fast }}" == "true" ]]; then
-            echo 'versions=["1"]' >> "$GITHUB_OUTPUT"
-            echo 'systems=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+            VERSIONS='["1"]'
+            EXTRA_OS='[]'
           else
-            echo 'versions=${{ inputs.julia-version }}' >> "$GITHUB_OUTPUT"
-            echo 'systems=${{ inputs.os }}' >> "$GITHUB_OUTPUT"
+            VERSIONS='${{ inputs.julia-version }}'
+            EXTRA_OS=$([[ "$RUN_EXTRA_OS" == "true" ]] && echo '${{ inputs.extra-os }}' || echo '[]')
           fi
+
+          # Every group runs on ubuntu-latest for all versions, and on the extra systems for julia 1 only
+          CONFIGS=$(jq -n -c --argjson groups "$TESTGROUPS" --argjson versions "$VERSIONS" --argjson extra "$EXTRA_OS" \
+            '[$groups[] as $g | ($versions[] | {group: $g, version: ., os: "ubuntu-latest"}), ($extra[] | {group: $g, version: "1", os: .})]')
+
+          # When staged, split off the extra systems into a second stage
+          STAGED='[]'
+          if [[ "${{ inputs.staged }}" == "true" ]]; then
+            STAGED=$(jq -c 'map(select(.os != "ubuntu-latest"))' <<< "$CONFIGS")
+            CONFIGS=$(jq -c 'map(select(.os == "ubuntu-latest"))' <<< "$CONFIGS")
+          fi
+          echo "configs=$CONFIGS" >> "$GITHUB_OUTPUT"
+          echo "staged-configs=$STAGED" >> "$GITHUB_OUTPUT"
 
   test:
     needs: setup
@@ -107,10 +132,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ${{ fromJSON(needs.setup.outputs.groups) }}
-        version: ${{ fromJSON(needs.setup.outputs.versions) }}
-        os: ${{ fromJSON(needs.setup.outputs.systems) }}
-    steps:
+        include: ${{ fromJSON(needs.setup.outputs.configs) }}
+    steps: &test-steps
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -160,15 +183,27 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+  test-staged:
+    needs: [setup, test]
+    if: needs.setup.outputs.staged-configs != '[]'
+    name: "${{ matrix.group }} (${{ matrix.version }}, ${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.staged-configs) }}
+    steps: *test-steps
+
   ci-success:
     name: ci-success
-    needs: test
-    if: always()
+    needs: [setup, test, test-staged]
+    if: always() && github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - name: Check all tests passed
         run: |
-          if [[ "${{ contains(needs.test.result, 'failure') || contains(needs.test.result, 'cancelled') }}" == "true" ]]; then
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
             exit 1
           fi
 
