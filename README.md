@@ -2,6 +2,36 @@
 
 Shared workflows for the QuantumKitHub Julia packages
 
+## Reducing CI load
+
+GitHub does not cancel running workflows when a PR is closed or merged, and CI runners are shared across the whole organization.
+All reusable workflows here therefore skip every job when triggered by a `closed` PR event, so that callers can use such an event purely to cancel the outstanding runs.
+To make use of this, every caller workflow should:
+
+1. Listen to the `closed` event (and `ready_for_review`, so that undrafting a PR runs the full test suite), next to the default `opened`, `synchronize` and `reopened` events:
+
+   ```yaml
+   on:
+     pull_request:
+       types: [opened, synchronize, reopened, ready_for_review, closed]
+   ```
+
+2. Define a concurrency group that cancels in-progress runs for PRs, so that a new push (or closing the PR) cancels the previous run:
+
+   ```yaml
+   concurrency:
+     group: ${{ github.workflow }}-${{ github.ref }}
+     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+   ```
+
+   The concurrency group has to be defined in the caller: a group defined inside a reusable workflow would either clash with the caller's group or cancel sibling matrix jobs.
+
+Additionally, consider:
+
+- running a reduced matrix on draft PRs (see the `fast` input of the [Test Groups](#test-groups) workflow);
+- restricting `macos-latest` and `windows-latest` runners, which have much lower organization-wide concurrency limits, to non-draft PRs and pushes to `main`;
+- using `paths-ignore` for changes that cannot affect the tests (e.g. `docs/**`, `*.md`) on workflows that are *not* required status checks — skipped required checks block merging.
+
 ## Test Groups
 
 The TestGroups workflow auto-discovers test groups from subdirectories of `test/` and runs them in parallel across a matrix of Julia versions and operating systems. Each subdirectory becomes a separate parallel job; groups are passed to the test suite via `test_args` and dispatched by [ParallelTestRunner.jl](https://github.com/QuantumKitHub/ParallelTestRunner.jl).
@@ -38,17 +68,19 @@ on:
       - main
     tags: '*'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   tests:
     uses: "QuantumKitHub/QuantumKitHubActions/.github/workflows/TestGroups.yml@main"
     with:
       fast: ${{ github.event.pull_request.draft == true }}
+      staged: ${{ github.event_name == 'pull_request' }}
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 ```
@@ -65,6 +97,7 @@ Add `ci-success` as a required status check in your repository's branch protecti
 | `julia-version` | string | `'["min", "1"]'` | JSON array of Julia versions to test |
 | `os` | string | `'["ubuntu-latest", "macos-latest", "windows-latest"]'` | JSON array of runner OSes |
 | `fast` | boolean | `false` | Collapse matrix to `ubuntu-latest` + julia `1`, append `--fast` to test args |
+| `staged` | boolean | `false` | Only run the non-ubuntu jobs once all ubuntu jobs have passed |
 | `nthreads` | number | `2` | Julia thread count per job |
 | `timeout-minutes` | number | `60` | Per-job timeout |
 | `localregistry` | string | `""` | Newline-separated local registry URLs |
@@ -85,6 +118,17 @@ with:
 ```
 
 ParallelTestRunner.jl passes `--fast` through to individual test files, which can use it to skip slow or expensive tests.
+
+### Staged runs
+
+macOS and Windows runners are scarce: GitHub only allows a handful of concurrent macOS jobs per organization.
+When `staged: true`, the jobs on non-ubuntu runners only start once every ubuntu job has passed, so that broken commits and commits superseded by a new push never occupy them.
+This costs some latency, so it is best restricted to PRs, keeping pushes to `main` and tags fully parallel:
+
+```yaml
+with:
+  staged: ${{ github.event_name == 'pull_request' }}
+```
 
 ### Excluding folders
 
@@ -141,12 +185,13 @@ on:
     paths-ignore:
       - 'docs/**'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Cancel intermediate builds: only if it is a pull request build.
-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+  # Cancel intermediate builds (and builds of closed PRs): only if it is a pull request build.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   tests:
@@ -167,7 +212,7 @@ jobs:
           - ubuntu-latest
           - macOS-latest
           - windows-latest
-    uses: "ITensor/ITensorActions/workflows/Tests.yml@main"
+    uses: "QuantumKitHub/QuantumKitHubActions/.github/workflows/Tests.yml@main"
     with:
       group: "${{ matrix.group }}"
       julia-version: "${{ matrix.version }}"
@@ -200,17 +245,19 @@ on:
       - main
     tags: '*'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
   schedule:
     - cron: '1 4 * * 4'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch || github.ref != 'refs/tags/v*' }}
+  # Never cancel deployments from `main` or tags
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-and-deploy-docs:
     name: "Documentation"
-    uses: "ITensor/ITensorActions/workflows/Documentation.yml@main"
+    uses: "QuantumKitHub/QuantumKitHubActions/.github/workflows/Documentation.yml@main"
     secrets: "inherit"
 ```
 
@@ -227,6 +274,11 @@ on:
       - 'main'
     tags: '*'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   format-check:
@@ -248,9 +300,14 @@ on:
       - 'main'
     tags: '*'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   format-check:
     name: "Literate Check"
-    uses: "ITensor/ITensorActions/workflows/LiterateCheck.yml@main"
+    uses: "QuantumKitHub/QuantumKitHubActions/.github/workflows/LiterateCheck.yml@main"
 ```

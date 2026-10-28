@@ -23,6 +23,11 @@ on:
         default: false
         required: false
         type: boolean
+      staged:
+        description: "Only run the non-ubuntu jobs once all ubuntu jobs have passed"
+        default: false
+        required: false
+        type: boolean
       nthreads:
         description: "Number of Julia threads"
         default: 2
@@ -72,11 +77,14 @@ on:
 jobs:
   setup:
     name: "Discover test groups"
+    # Runs triggered by closing a PR only exist to cancel in-progress runs through the caller's concurrency group
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     outputs:
       groups: ${{ steps.discover.outputs.groups }}
       versions: ${{ steps.discover.outputs.versions }}
       systems: ${{ steps.discover.outputs.systems }}
+      staged-systems: ${{ steps.discover.outputs.staged-systems }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -93,11 +101,25 @@ jobs:
 
           if [[ "${{ inputs.fast }}" == "true" ]]; then
             echo 'versions=["1"]' >> "$GITHUB_OUTPUT"
-            echo 'systems=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+            SYSTEMS='["ubuntu-latest"]'
           else
             echo 'versions=${{ inputs.julia-version }}' >> "$GITHUB_OUTPUT"
-            echo 'systems=${{ inputs.os }}' >> "$GITHUB_OUTPUT"
+            SYSTEMS='${{ inputs.os }}'
           fi
+
+          # When staged, split off the non-ubuntu systems into a second stage,
+          # unless that would leave either stage empty
+          STAGED='[]'
+          if [[ "${{ inputs.staged }}" == "true" ]]; then
+            FIRST=$(jq -c 'map(select(startswith("ubuntu")))' <<< "$SYSTEMS")
+            REST=$(jq -c 'map(select(startswith("ubuntu") | not))' <<< "$SYSTEMS")
+            if [[ "$FIRST" != "[]" && "$REST" != "[]" ]]; then
+              SYSTEMS=$FIRST
+              STAGED=$REST
+            fi
+          fi
+          echo "systems=$SYSTEMS" >> "$GITHUB_OUTPUT"
+          echo "staged-systems=$STAGED" >> "$GITHUB_OUTPUT"
 
   test:
     needs: setup
@@ -110,7 +132,7 @@ jobs:
         group: ${{ fromJSON(needs.setup.outputs.groups) }}
         version: ${{ fromJSON(needs.setup.outputs.versions) }}
         os: ${{ fromJSON(needs.setup.outputs.systems) }}
-    steps:
+    steps: &test-steps
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -160,15 +182,29 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+  test-staged:
+    needs: [setup, test]
+    if: needs.setup.outputs.staged-systems != '[]'
+    name: "${{ matrix.group }} (${{ matrix.version }}, ${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.setup.outputs.groups) }}
+        version: ${{ fromJSON(needs.setup.outputs.versions) }}
+        os: ${{ fromJSON(needs.setup.outputs.staged-systems) }}
+    steps: *test-steps
+
   ci-success:
     name: ci-success
-    needs: test
-    if: always()
+    needs: [setup, test, test-staged]
+    if: always() && github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - name: Check all tests passed
         run: |
-          if [[ "${{ contains(needs.test.result, 'failure') || contains(needs.test.result, 'cancelled') }}" == "true" ]]; then
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
             exit 1
           fi
 
