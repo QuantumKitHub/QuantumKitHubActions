@@ -29,12 +29,12 @@ To make use of this, every caller workflow should:
 Additionally, consider:
 
 - running a reduced matrix on draft PRs (see the `fast` input of the [Test Groups](#test-groups) workflow);
-- restricting `macos-latest` and `windows-latest` runners, which have much lower organization-wide concurrency limits, to non-draft PRs and pushes to `main`;
+- restricting `macos-latest` and `windows-latest` runners, which have much lower organization-wide concurrency limits, to the latest Julia version on pushes to `main` (the default for the [Test Groups](#test-groups) workflow);
 - using `paths-ignore` for changes that cannot affect the tests (e.g. `docs/**`, `*.md`) on workflows that are *not* required status checks — skipped required checks block merging.
 
 ## Test Groups
 
-The TestGroups workflow auto-discovers test groups from subdirectories of `test/` and runs them in parallel across a matrix of Julia versions and operating systems. Each subdirectory becomes a separate parallel job; groups are passed to the test suite via `test_args` and dispatched by [ParallelTestRunner.jl](https://github.com/QuantumKitHub/ParallelTestRunner.jl).
+The TestGroups workflow auto-discovers test groups from subdirectories of `test/` and runs them in parallel across a matrix of Julia versions and operating systems (see [Operating systems](#operating-systems)). Each subdirectory becomes a separate parallel job; groups are passed to the test suite via `test_args` and dispatched by [ParallelTestRunner.jl](https://github.com/QuantumKitHub/ParallelTestRunner.jl).
 
 ### Test directory structure
 
@@ -80,7 +80,6 @@ jobs:
     uses: "QuantumKitHub/QuantumKitHubActions/.github/workflows/TestGroups.yml@main"
     with:
       fast: ${{ github.event.pull_request.draft == true }}
-      staged: ${{ github.event_name == 'pull_request' }}
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 ```
@@ -94,10 +93,11 @@ Add `ci-success` as a required status check in your repository's branch protecti
 | Input | Type | Default | Description |
 |---|---|---|---|
 | `exclude` | string | `'["setup", "gpu"]'` | JSON array of `test/` subdirectory names to exclude from discovery |
-| `julia-version` | string | `'["min", "1"]'` | JSON array of Julia versions to test |
-| `os` | string | `'["ubuntu-latest", "macos-latest", "windows-latest"]'` | JSON array of runner OSes |
+| `julia-version` | string | `'["min", "1"]'` | JSON array of Julia versions to test on `ubuntu-latest` |
+| `extra-os` | string | `'["macos-latest", "windows-latest"]'` | JSON array of additional runner OSes, tested with julia `1` only |
+| `extra-os-on-prs` | boolean | `false` | Also test on `extra-os` for pull requests |
 | `fast` | boolean | `false` | Collapse matrix to `ubuntu-latest` + julia `1`, append `--fast` to test args |
-| `staged` | boolean | `false` | Only run the non-ubuntu jobs once all ubuntu jobs have passed |
+| `staged` | boolean | `false` | Only run the `extra-os` jobs once all ubuntu jobs have passed |
 | `nthreads` | number | `2` | Julia thread count per job |
 | `timeout-minutes` | number | `60` | Per-job timeout |
 | `localregistry` | string | `""` | Newline-separated local registry URLs |
@@ -119,14 +119,19 @@ with:
 
 ParallelTestRunner.jl passes `--fast` through to individual test files, which can use it to skip slow or expensive tests.
 
-### Staged runs
+### Operating systems
 
 macOS and Windows runners are scarce: GitHub only allows a handful of concurrent macOS jobs per organization.
-When `staged: true`, the jobs on non-ubuntu runners only start once every ubuntu job has passed, so that broken commits and commits superseded by a new push never occupy them.
-This costs some latency, so it is best restricted to PRs, keeping pushes to `main` and tags fully parallel:
+Therefore, every Julia version in `julia-version` is tested on `ubuntu-latest`, while the systems in `extra-os` are only tested with julia `1`, and only on pushes to the default branch and manual (`workflow_dispatch`) runs.
+Tags are not included, since they normally point to a commit that was already tested on the default branch.
+
+Packages where platform-specific failures are common (e.g. those relying heavily on Enzyme) can also run the `extra-os` jobs on PRs.
+Combine this with `staged` to only start them once every ubuntu job has passed, so that broken commits and commits superseded by a new push never occupy the scarce runners:
 
 ```yaml
 with:
+  fast: ${{ github.event.pull_request.draft == true }}
+  extra-os-on-prs: true
   staged: ${{ github.event_name == 'pull_request' }}
 ```
 
